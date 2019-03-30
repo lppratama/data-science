@@ -18,7 +18,7 @@ library(highcharter)
 library(dplyr)
 library(plyr)
 
-hasil <- read.xlsx("e:/data_kemiskinan_jateng_plus.xlsx")
+hasil <- read.xlsx("data_kemiskinan_jateng_plus.xlsx")
 df1 <- aggregate(hasil[, 3], list(hasil$kabupaten), mean)
 colnames(df1) <- c("kabupaten","jumlah")
 
