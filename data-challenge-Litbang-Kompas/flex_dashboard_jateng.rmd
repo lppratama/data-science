@@ -1,0 +1,117 @@
+---
+title: "Tingkat Kemiskinan Jawa Tengah 2012 - 2015"
+resource_files:
+- data_kemiskinan_jateng_plus.xlsx
+runtime: shiny
+output:
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(openxlsx)
+library(shiny)
+library(leaflet)
+library(highcharter)
+library(dplyr)
+library(plyr)
+
+hasil <- read.xlsx("e:/data_kemiskinan_jateng_plus.xlsx")
+df1 <- aggregate(hasil[, 3], list(hasil$kabupaten), mean)
+colnames(df1) <- c("kabupaten","jumlah")
+
+df2 <- aggregate(hasil[, 4], list(hasil$kabupaten), mean)
+colnames(df2) <- c("kabupaten","pengangguran")
+
+df3 <- aggregate(hasil[, 5], list(hasil$kabupaten), mean)
+colnames(df3) <- c("kabupaten","penduduk")
+
+lokasi <- unique(hasil[,c(1,6,7)])
+lokasi <- lokasi[order(lokasi$kabupaten),]
+lokasi_gis <- join_all(list(lokasi,df1,df3,df2), by = "kabupaten", type = 'left')
+lokasi_gis$warna <- with(lokasi_gis, ifelse(jumlah <= 80, "blue", 
+                                            ifelse(jumlah <= 160, "orange",
+                                                   ifelse(jumlah <= 240, "red",
+                                                          ifelse(jumlah <= 320, "darkred", "purple")))))
+
+lokasi_gis <- lokasi_gis %>% mutate_at(vars(jumlah,penduduk,pengangguran), funs(round(., 2)))
+
+iconMap <- makeAwesomeIcon(icon = 'stop', markerColor = ~warna, iconColor = "black")
+
+labs <- lapply(seq(nrow(lokasi_gis)), function(i) {
+  paste0( '<p>', lokasi_gis[i, "kabupaten"], '<p></p>', 
+          "Rata-Rata Jumlah Penduduk: ", lokasi_gis[i, "penduduk"], " ribu jiwa", '<p></p>', 
+          "Rata-Rata Penduduk Miskin: ", lokasi_gis[i, "jumlah"]," ribu jiwa",'</p><p>', 
+          "Rata-Rata Pengangguran: ", lokasi_gis[i, "pengangguran"], " ribu jiwa",'</p>' ) 
+})
+
+hasil2 <- hasil
+hasil2 <- hasil2 %>% mutate_at(vars(jumlah,penduduk,pengangguran), funs(round(., 2)))
+
+```
+
+Column
+-----------------------------------------------------------------------
+
+### Peta Jawa Tengah
+
+```{r}
+output$map <- renderLeaflet({
+  leaflet() %>%
+    addTiles() %>%
+    addAwesomeMarkers(data = lokasi_gis, lng = ~longitude, lat = ~latitude, 
+               layerId = ~kabupaten, 
+               label= lapply(labs, HTML), icon = iconMap) %>%
+    addLegend("bottomright",
+            title = "Rata-Rata 2012-2015", 
+            colors = c("lightblue", "orange", "red", "darkred", "purple"), 
+            values = ~jumlah, opacity = 1, 
+            labels = c("0 - 80 ribu","81 - 160 ribu", "161 - 240 ribu", "241 - 320 ribu", "321 - 400 ribu")) 
+    
+})
+
+leafletOutput('map')
+```
+
+
+### Jumlah Masyarat Miskin Tahun ke Tahun
+
+```{r}
+click_marker <- eventReactive(input$map_marker_click, {
+
+  x <- input$map_marker_click
+#    showModal(modalDialog(
+#          title = "You click ",
+#          paste0(x$id),
+#          easyClose = TRUE,
+#          footer = NULL
+#        ))
+  return(x$id)
+})
+
+data_for_chart <- reactive({
+  #return(df[df$ids == click_marker(), ])
+  hasil2 <- hasil[hasil$kabupaten == click_marker(),]
+  return(hasil2)
+})
+
+output$chart <- renderHighchart({
+
+  hasil2 <- hasil[hasil$kabupaten == click_marker(),]
+  print(hasil2)
+    highchart() %>%
+      hc_add_series(hasil2, "column", hcaes(x = tahun, y = jumlah, group = kabupaten)) %>%
+      hc_add_series(hasil2, name = "Jumlah Penduduk", "column", hcaes(x = tahun, y = penduduk)) %>%
+      hc_add_series(hasil2, name = "Jumlah Pengangguran", "column", hcaes(x = tahun, y = pengangguran)) %>%
+      hc_xAxis(title = list(text = "Tahun")) %>%
+      hc_yAxis(title = list(text = "Jumlah (Ribu Jiwa)"))
+})
+
+highchartOutput('chart')
+
+```
+
+ 
+
