@@ -1,0 +1,98 @@
+---
+title: "Tingkat Penjualan Susu Bayi Jawa Timur"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: fill
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(openxlsx)
+library(shiny)
+library(leaflet)
+library(highcharter)
+library(plyr)
+library(dplyr)
+
+hasil <- read.csv("sales.csv", sep = ",")
+df1 <- aggregate(hasil[, 3], list(hasil$coverage), mean)
+colnames(df1) <- c("coverage","sales")
+df1$sales <- round(df1$sales, digits = 2)
+lokasi <- unique(hasil[,c(1,4,5)])
+lokasi <- lokasi[order(lokasi$coverage),]
+lokasi_gis <- join_all(list(lokasi,df1), by = "coverage", type = 'left')
+lokasi_gis$warna <- with(lokasi_gis, ifelse(sales <= 60, "blue", 
+                                            ifelse(sales <= 120, "orange",
+                                                   ifelse(sales <= 180, "red",
+                                                          ifelse(sales <= 240, "darkred", "purple")))))
+lokasi_gis <- lokasi_gis %>% mutate_at(vars(sales), funs(round(., 2)))
+iconMap <- makeAwesomeIcon(icon = 'stop', markerColor = ~warna, iconColor = "black")
+labs <- lapply(seq(nrow(lokasi_gis)), function(i) {
+  paste0( '<p>', lokasi_gis[i, "coverage"], '<p></p>', "Rata-rata Penjualan Susu Bayi: ", lokasi_gis[i, "sales"], " juta unit", '<p></p>','</p>' ) 
+})
+hasil2 <- hasil
+```
+
+Column
+-----------------------------------------------------------------------
+
+### Peta Jawa Timur
+
+```{r}
+output$map <- renderLeaflet({
+
+  leaflet() %>%
+    addTiles() %>%
+    addAwesomeMarkers(data = lokasi_gis, lng = ~longitude, lat = ~latitude, 
+               layerId = ~coverage, 
+               label= lapply(labs, HTML), icon = iconMap) %>%
+ addLegend("bottomright",
+            title = "Rata-Rata 2014-2016", 
+            colors = c("lightblue", "orange", "red", "darkred", "purple"), 
+            values = ~jumlah, opacity = 1, 
+            labels = c("0 - 60 juta unit","60 - 120 juta unit", "120 - 180 juta unit", "180 - 240 juta unit", "> 240 juta unit")) 
+})
+
+leafletOutput('map')
+```
+
+
+### Jumlah Kasus Gizi Buruk Tahun ke Tahun
+
+```{r}
+click_marker <- eventReactive(input$map_marker_click, {
+
+  x <- input$map_marker_click
+#    showModal(modalDialog(
+#          title = "You click ",
+#          paste0(x$id),
+#          easyClose = TRUE,
+#          footer = NULL
+#        ))
+  return(x$id)
+})
+
+data_for_chart <- reactive({
+  #return(df[df$ids == click_marker(), ])
+  hasil2 <- hasil[hasil$coverage == click_marker(),]
+  return(hasil2)
+})
+
+output$chart <- renderHighchart({
+
+  hasil2 <- hasil[hasil$coverage == click_marker(),]
+  print(hasil2)
+  highchart() %>%
+    hc_add_series(hasil2, "line", hcaes(x = tahun, y = sales, group = coverage)) %>%
+    hc_xAxis(tickInterval = 1, title = list(text = "Tahun")) %>%
+      hc_yAxis(title = list(text = "Jumlah (juta unit)"))
+})
+
+highchartOutput('chart')
+
+```
+
+ 
+
